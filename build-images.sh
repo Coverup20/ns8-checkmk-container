@@ -15,10 +15,40 @@ repobase="${REPOBASE:-ghcr.io/nethserver}"
 # Configure the image name
 reponame="checkmk-agent"
 
-# Create a new empty container image
-container=$(buildah from scratch)
+# CheckMK server configuration
+CHECKMK_SERVER="${CHECKMK_SERVER:-https://monitor.nethlab.it/monitoring}"
+CHECKMK_VERSION="${CHECKMK_VERSION:-2.4.0p26}"
 
-# Reuse existing nodebuilder-checkmk-agent container, to speed up builds
+# Create container from Rocky Linux 9 minimal
+echo "Creating container from Rocky Linux 9..."
+container=$(buildah from docker.io/rockylinux:9-minimal)
+
+# Install base packages
+echo "Installing base packages..."
+buildah run "${container}" microdnf install -y python3 git socat curl
+
+# Download and install CheckMK agent from Nethesis server
+echo "Installing CheckMK agent ${CHECKMK_VERSION}..."
+buildah run "${container}" sh -c "
+    curl -fsSL ${CHECKMK_SERVER}/check_mk/agents/check-mk-agent-${CHECKMK_VERSION}-1.noarch.rpm \
+        -o /tmp/check-mk-agent.rpm && \
+    rpm -ivh /tmp/check-mk-agent.rpm && \
+    rm -f /tmp/check-mk-agent.rpm
+"
+
+# Clone checkmk-tools repository and deploy NS8 scripts
+echo "Deploying NS8 monitoring scripts..."
+buildah run "${container}" sh -c "
+    git clone https://github.com/nethesis/checkmk-tools.git /opt/checkmk-tools && \
+    mkdir -p /usr/lib/check_mk_agent/local && \
+    for script in /opt/checkmk-tools/script-check-ns8/full/*.py; do \
+        base=\$(basename \"\$script\" .py); \
+        cp \"\$script\" \"/usr/lib/check_mk_agent/local/\$base\"; \
+        chmod +x \"/usr/lib/check_mk_agent/local/\$base\"; \
+    done
+"
+
+# Build UI (NodeJS builder)
 if ! buildah containers --format "{{.ContainerName}}" | grep -q nodebuilder-checkmk-agent; then
     echo "Pulling NodeJS runtime..."
     buildah from --name nodebuilder-checkmk-agent -v "${PWD}:/usr/src:Z" docker.io/library/node:24.14.1-slim
@@ -34,12 +64,17 @@ buildah run \
 # Add imageroot directory to the container image
 buildah add "${container}" imageroot /imageroot
 buildah add "${container}" ui/dist /ui
-# Setup the entrypoint, ask to reserve one TCP port with the label and set a rootless container
-buildah config --entrypoint=/ \
-    --label="org.nethserver.authorizations=traefik@node:routeadm" \
+
+# Configure socat entrypoint for CheckMK agent
+buildah run "${container}" sh -c "echo '#!/bin/bash
+exec socat TCP-LISTEN:6556,reuseaddr,fork,keepalive EXEC:/usr/sbin/check_mk_agent' > /entrypoint.sh"
+buildah run "${container}" chmod +x /entrypoint.sh
+
+# Setup the entrypoint and labels for NS8 rootful container
+buildah config --entrypoint=/entrypoint.sh \
     --label="org.nethserver.tcp-ports-demand=1" \
-    --label="org.nethserver.rootfull=0" \
-    --label="org.nethserver.images=docker.io/jmalloc/echo-server:latest" \
+    --label="org.nethserver.rootfull=1" \
+    --label="org.nethserver.images=docker.io/rockylinux:9-minimal" \
     "${container}"
 # Commit the image
 buildah commit "${container}" "${repobase}/${reponame}"
