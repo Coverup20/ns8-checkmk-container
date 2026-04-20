@@ -32,7 +32,7 @@ RUN set -e \
 
 # Configure socat entrypoint for CheckMK agent
 RUN echo '#!/bin/bash' > /entrypoint.sh \
-    && echo 'exec socat TCP-LISTEN:6556,reuseaddr,fork,keepalive EXEC:/usr/sbin/check_mk_agent' >> /entrypoint.sh \
+    && echo 'exec socat TCP-LISTEN:6556,reuseaddr,fork,keepalive EXEC:/usr/bin/check_mk_agent' >> /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 # Set entrypoint
