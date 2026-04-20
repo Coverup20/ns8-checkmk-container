@@ -1,80 +1,107 @@
-# ns8-checkmk-agent
+# ns8-checkmk-container
 
-Containerized CheckMK agent for NethServer 8 (NS8).
+Containerized CheckMK agent for NethServer 8 (NS8) with FRPC optional tunneling.
 
-Runs the official `check-mk-agent` RPM inside a Rocky Linux 9 container, exposes port 6556,
-and supports deep NS8 module checks via `runagent` (including rootless Podman container inspection).
+Runs the official `check-mk-agent` RPM inside a Rocky Linux 9 minimal container, exposes port 6556,
+and optionally includes FRPC client for secure remote monitoring tunnels.
 
 ## Features
 
-- CheckMK agent auto-installed from the configured monitoring server (version auto-detected)
-- Built-in system checks work out of the box (CPU, memory, disk, network, processes)
-- SOS session check included (`check-sos`)
-- `runagent` fully functional from inside the container: can inspect rootless module containers
-  (webtop, mail, nethvoice, samba, etc.) without installing anything on the host
-- No native RPM or systemd unit needed on the NS8 host
+- **CheckMK agent** auto-detected from monitoring server (latest version)
+- **FRPC optional** (v0.68.1) — activated via env vars or config mount
+- **Two build variants**:
+  - **Base** (`Containerfile`) — System checks + SOS session monitoring only
+  - **Runagent** (`Containerfile.runagent`) — Full NS8 module inspection with runagent support
+- **Lightweight** — 234 MB (base) / 236 MB (runagent)
+- **No host dependencies** — No native RPM or systemd unit needed on NS8 host
 
-## Build
+## Build Variants
+
+### Base image (rootful/rootless compatible)
+
+Minimal deployment with system checks and SOS session monitoring:
 
 ```bash
-podman build -t checkmk-agent:latest .
+podman build -f Containerfile -t checkmk-agent:latest .
 ```
 
-Override the CheckMK server URL if needed:
+**Includes:**
+- CheckMK agent 2.4.0p26+ (auto-detected)
+- FRPC client v0.68.1 (optional activation)
+- 1 local check: `check-sos` (SOS session monitoring)
+- Size: **234 MB**
+
+### Runagent image (full NS8 module inspection)
+
+Complete NS8 deployment with rootless Podman container inspection:
+
+```bash
+podman build -f Containerfile.runagent -t checkmk-agent:runagent .
+```
+
+**Includes:**
+- All base features
+- runagent dependencies (procps-ng, shadow-utils, libseccomp)
+- PYTHONPATH wrapper for agent module imports
+- 12 local checks: `check-sos` + 11 NS8 module checks
+- Size: **236 MB**
+
+**NS8 module checks:**
+- `check_ns8_containers`, `check_ns8_services`, `check_ns8_container_status`
+- `check_ns8_container_inventory`, `check_ns8_container_resources`
+- `check_ns8_smoke_test`, `check_podman_events`
+- `check_ns8_tomcat8`, `check_ns8_webtop`
+- `check_nv8_status_trunk`, `check_nv8_status_extensions`
+
+## Build Arguments
+
+Override defaults at build time:
 
 ```bash
 podman build \
-  --build-arg CMK_AGENT_URL=https://<your-checkmk-server>/<site>/check_mk/agents \
-  -t checkmk-agent:latest .
+  --build-arg CMK_AGENT_URL=https://<your-server>/<site>/check_mk/agents \
+  --build-arg FRP_VERSION=0.68.1 \
+  -f Containerfile -t checkmk-agent:latest .
 ```
 
-## Pre-built images (GitHub Actions)
+## Pre-built images (GitHub Container Registry)
 
-Every push to `main` automatically builds and publishes two images to
-`ghcr.io/coverup20/ns8-checkmk-agent`:
+Pull directly from `ghcr.io/coverup20/ns8-checkmk-container`:
 
-| Tag | Description |
-|---|---|
-| `:runagent` | Full NS8 build — runagent + all module checks |
-| `:base` | Minimal build — system checks + SOS only |
+| Tag | Description | Size |
+|---|---|---|
+| `:latest` | Base image — system checks + SOS only | 234 MB |
+| `:runagent` | Full NS8 build — runagent + 12 module checks | 236 MB |
 
-Pull directly on the target host:
+Pull directly on target host:
 
 ```bash
-podman pull ghcr.io/coverup20/ns8-checkmk-agent:runagent
+# Base variant
+podman pull ghcr.io/coverup20/ns8-checkmk-container:latest
+
+# Runagent variant (full NS8)
+podman pull ghcr.io/coverup20/ns8-checkmk-container:runagent
 ```
-
-### Setting up GitHub Actions secret (one-time)
-
-The image build requires downloading the CheckMK agent RPM from your monitoring server.
-Add `CMK_AGENT_URL` as a repository secret:
-
-1. GitHub → repository → **Settings** → **Secrets and variables** → **Actions**
-2. **New repository secret**
-3. Name: `CMK_AGENT_URL`
-4. Value: `https://<your-checkmk-server>/<site>/check_mk/agents`
-
-Without this secret the docker-image build steps will fail (the Nethesis module step is unaffected).
 
 ## Deploy
 
-The container needs several bind mounts from the NS8 host to support `runagent`
-and NS8 module checks. All mounts are read-only except `/run/user`.
+### Base deployment (rootful or rootless compatible)
 
-### Minimal deployment (system checks + SOS only)
+Minimal container with system checks + SOS monitoring:
 
 ```bash
 podman run -d \
   --name checkmk-agent \
   --restart=always \
-  --privileged \
-  --pid=host \
   -p 6556:6556 \
-  --security-opt label=disable \
-  checkmk-agent:latest
+  ghcr.io/coverup20/ns8-checkmk-container:latest
 ```
 
-### Full NS8 deployment (with runagent + module checks)
+**Note:** Base variant works in both rootful and rootless mode. No `--privileged` required for basic monitoring.
+
+### Full NS8 deployment (runagent + module checks)
+
+Complete deployment with NS8 module inspection (requires host mounts):
 
 ```bash
 podman run -d \
@@ -97,7 +124,63 @@ podman run -d \
   -v /run/user:/run/user \
   -v /home:/home:ro \
   --security-opt label=disable \
-  checkmk-agent:latest
+  ghcr.io/coverup20/ns8-checkmk-container:runagent
+```
+
+## FRPC Optional Tunneling
+
+FRPC client (v0.68.1) is pre-installed but **NOT activated** by default.
+
+### Activation method 1: Environment variables (recommended)
+
+```bash
+podman run -d \
+  --name checkmk-agent \
+  -p 6556:6556 \
+  -e FRPC_SERVER_ADDR=monitor.nethlab.it \
+  -e FRPC_TOKEN=your-auth-token \
+  -e FRPC_PROXY_NAME=myhost \
+  -e FRPC_REMOTE_PORT=6003 \
+  -e FRPC_SERVER_PORT=7000 \
+  -e FRPC_TLS=true \
+  ghcr.io/coverup20/ns8-checkmk-container:latest
+```
+
+### Activation method 2: Config file mount (advanced)
+
+```bash
+podman run -d \
+  --name checkmk-agent \
+  -p 6556:6556 \
+  -v /etc/frp/frpc.toml:/etc/frp/frpc.toml:ro \
+  ghcr.io/coverup20/ns8-checkmk-container:latest
+```
+
+**Without FRPC configuration:** Container runs CheckMK agent only (no tunnel).
+
+## Verification
+
+Test agent response:
+
+```bash
+# Direct connection
+echo | nc localhost 6556 | head -20
+
+# From CheckMK server
+cmk --check <hostname>
+```
+
+Check FRPC status (if configured):
+
+```bash
+podman logs checkmk-agent | grep frpc
+```
+
+## Version
+
+Current release: **v0.0.1**
+
+See [releases](https://github.com/Coverup20/ns8-checkmk-container/releases) for changelog.
 ```
 
 ### Mount reference
