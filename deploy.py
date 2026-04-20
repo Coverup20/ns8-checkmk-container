@@ -14,7 +14,7 @@ import shlex
 
 VERSION = "1.2.0"
 
-GHCR_REPO = "ghcr.io/coverup20/ns8-checkmk-container"
+GHCR_REPO = "ghcr.io/coverup20/ns8-checkmk-agent"
 
 ## Utils
 
