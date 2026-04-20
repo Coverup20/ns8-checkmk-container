@@ -12,9 +12,9 @@ import sys
 import subprocess
 import shlex
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
-GHCR_REPO = "ghcr.io/coverup20/ns8-checkmk-agent"
+GHCR_REPO = "ghcr.io/coverup20/ns8-checkmk-container"
 
 ## Utils
 
@@ -32,34 +32,12 @@ def ask_yn(prompt, default="y"):
         return default == "y"
     return val in ("y", "yes", "si", "s")
 
-def ask_choice(prompt, choices, default=None):
-    for i, (label, desc) in enumerate(choices, 1):
-        marker = " (default)" if str(default) == str(i) else ""
-        print(f"  {i}) {label:12} — {desc}{marker}")
-    while True:
-        val = ask(prompt, default)
-        try:
-            idx = int(val) - 1
-            if 0 <= idx < len(choices):
-                return choices[idx][0]
-        except (ValueError, TypeError):
-            pass
-        print(f"  Enter a number between 1 and {len(choices)}")
-
 def run_ssh(host, command):
     print(f"\n[deploy] Running on {host}...")
     rc = subprocess.run(["ssh", host, command]).returncode
     return rc
 
 ## Deploy
-
-def choose_variant():
-    print("\nSelect image variant:")
-    tag = ask_choice("Variant", [
-        ("latest",   "minimal — system checks + SOS only"),
-        ("runagent", "full NS8 — module inspection, NethVoice, WebTop, mail..."),
-    ], default=2)
-    return tag
 
 def ask_frpc():
     if not ask_yn("\nEnable frpc tunnel (to reach the agent from the CheckMK server)?", "n"):
@@ -116,10 +94,10 @@ def build_run_cmd(tag, container_name, frpc_env, image_ref):
     return " \\\n".join(lines)
 
 def main():
-    print(f"\nns8-checkmk-agent deploy helper  v{VERSION}")
+    print(f"\nns8-checkmk-container deploy helper  v{VERSION}")
     print("=" * 52)
 
-    tag            = choose_variant()
+    tag            = "runagent"
     container_name = ask("\nContainer name", "checkmk-agent")
     frpc_env       = ask_frpc()
 
@@ -170,7 +148,7 @@ def main():
             cmk_url = ask("CheckMK agents URL (needed to build the image)",
                           "https://monitor.nethlab.it/monitoring/check_mk/agents")
             build_cmd = (
-                f"cd /opt/ns8-checkmk-agent && "
+                f"cd /opt/ns8-checkmk-container && "
                 f"git fetch origin && git reset --hard origin/main && "
                 f"podman build -f Dockerfile{'.runagent' if tag == 'runagent' else ''} "
                 f"--build-arg CMK_AGENT_URL={cmk_url} "
