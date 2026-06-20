@@ -10,14 +10,28 @@
 - **DO NOT start work** without reading and understanding the instructions
 
 **MANDATORY: At the start of EVERY conversation, use the memory tool to read these repository memory files:**
-- `/memories/repo/git-push-policy.md` → Git commit format, versioning (v0.0.x), tag + release workflow (CRITICAL)
+- `/memories/repo/git-push-policy.md` → Git commit format, versioning (v0.0.X PATCH progression), tag + release workflow (CRITICAL)
+
+### MANDATORY VERSION CLASSIFICATION AND PATCH PROGRESSION
+
+For fixes, maintenance changes, policy updates, documentation corrections,
+backward-compatible refactors, validation improvements, and internal
+operational hardening, increment PATCH only.
+
+Required sequence:
+v1.0.0 → v1.0.1 → ... → v1.0.9 → v1.0.10 → v1.0.11
+
+Do not increment MINOR unless a real new backward-compatible feature has
+been explicitly classified and approved as a MINOR release.
+
+Never abbreviate v1.0.10 as v1.10.
 
 ---
 
 ## Repository Information
 
-**Repository:** `Coverup20/ns8-checkmk-container`  
-**Type:** Owned repository (not a fork)  
+**Repository:** `Coverup20/ns8-checkmk-container`
+**Type:** Owned repository (not a fork)
 **Purpose:** Podman container for CheckMK agent with FRPC tunnel on NethServer 8
 
 ---
@@ -98,5 +112,5 @@
 
 ---
 
-**Created:** 2026-04-20  
+**Created:** 2026-04-20
 **Last updated:** 2026-04-23
